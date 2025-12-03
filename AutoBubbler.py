@@ -1,0 +1,369 @@
+import sys
+import os
+import csv
+import re
+import fitz  # PyMuPDF
+from PySide6.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
+                               QWidget, QTextEdit, QProgressBar, QMessageBox)
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QFont, QDropEvent, QDragEnterEvent, QIcon
+
+# ================= CONFIG & GEOMETRY =================
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Use the script's own directory
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    return os.path.join(base_path, relative_path)
+
+BLANK_PDF_NAME = "DocSolScantron.pdf"
+# UPDATED: Matches your filename
+ICON_NAME = "AutoBubbler.ico" 
+
+# GEOMETRY: SPECIAL CODE (Manual Grid)
+SC_START_X = 511.5
+SC_START_Y = 351.5
+SC_STEP_X = 15.0
+SC_STEP_Y = 17.0
+BUBBLE_NUDGE_X = -1.0 
+
+# GEOMETRY: SPECIAL CODE TEXT
+SC_TEXT_OFFSET_X = -7
+SC_TEXT_OFFSET_Y = -28
+
+# GEOMETRY: QUESTIONS (Visual Grid)
+Q_SYMBOLS = {33: "A", 35: "B", 36: "C", 37: "D", 38: "E"}
+PAGE1_MIN_Y = 550  
+
+# ================= CORE LOGIC =================
+
+class BubblerLogic:
+    """Contains the original logic from TheBubbler.py, adapted for the GUI."""
+    
+    @staticmethod
+    def parse_csv(filepath):
+        answers = {}
+        try:
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
+                reader = csv.reader(f)
+                next(reader, None)  # Skip Header
+                for row in reader:
+                    if len(row) >= 2:
+                        q_num = row[0].strip()
+                        ans = row[1].strip().upper()
+                        if q_num and ans:
+                            answers[q_num] = ans
+        except Exception as e:
+            raise ValueError(f"CSV Error: {e}")
+        return answers
+
+    @staticmethod
+    def extract_special_code(filename):
+        match = re.search(r"v(\d+)", filename)
+        if match:
+            return match.group(1)
+        return "0000"
+
+    @staticmethod
+    def get_center(bbox):
+        return [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
+
+    @staticmethod
+    def cluster_by_x(items, gap=15):
+        items.sort(key=lambda i: i["center"][0])
+        cols = []
+        curr = [items[0]]
+        for x in items[1:]:
+            if x["center"][0] - curr[-1]["center"][0] < gap:
+                curr.append(x)
+            else:
+                cols.append(curr)
+                curr = [x]
+        cols.append(curr)
+        return cols
+
+    @staticmethod
+    def cluster_by_y(items, gap=6):
+        items.sort(key=lambda i: i["center"][1])
+        rows = []
+        curr = [items[0]]
+        for x in items[1:]:
+            if x["center"][1] - curr[-1]["center"][1] < gap:
+                curr.append(x)
+            else:
+                rows.append(curr)
+                curr = [x]
+        rows.append(curr)
+        return rows
+
+    @classmethod
+    def map_questions(cls, doc):
+        mapping = {}
+        for page_num, page in enumerate(doc):
+            raw = page.get_text("rawdict")
+            page_bubbles = []
+            
+            for block in raw["blocks"]:
+                if "lines" not in block: continue
+                for line in block["lines"]:
+                    for span in line["spans"]:
+                        for char in span["chars"]:
+                            c_val = ord(char["c"])
+                            center = cls.get_center(char["bbox"])
+                            if c_val in Q_SYMBOLS:
+                                if page_num == 0 and center[1] < PAGE1_MIN_Y:
+                                    continue
+                                page_bubbles.append({
+                                    "choice": Q_SYMBOLS[c_val],
+                                    "center": center
+                                })
+            
+            if page_bubbles:
+                cols = cls.cluster_by_x(page_bubbles, gap=50)
+                cols.sort(key=lambda c: c[0]["center"][0])
+                
+                if page_num == 0: col_starts = [1, 11, 21, 31]
+                else: col_starts = [41, 81, 121, 161]
+                
+                for i, col_items in enumerate(cols):
+                    if i >= len(col_starts): break
+                    start_q = col_starts[i]
+                    
+                    rows = cls.cluster_by_y(col_items)
+                    rows.sort(key=lambda r: r[0]["center"][1])
+                    
+                    for r_idx, row in enumerate(rows):
+                        q_num = str(start_q + r_idx)
+                        if q_num not in mapping: 
+                            mapping[q_num] = {"page": page_num}
+                        
+                        for bubble in row:
+                            mapping[q_num][bubble["choice"]] = bubble["center"]
+        return mapping
+
+    @staticmethod
+    def fill_pdf(doc, q_map, answers, special_code):
+        # 1. FILL QUESTIONS
+        for q, choice in answers.items():
+            if q in q_map and choice in q_map[q]:
+                pt = q_map[q][choice]
+                page = doc[q_map[q]["page"]]
+                x = pt[0] + BUBBLE_NUDGE_X
+                y = pt[1]
+                page.draw_circle(fitz.Point(x, y), radius=6, color=(0,0,0), fill=(0,0,0))
+
+        # 2. FILL SPECIAL CODE
+        page = doc[0]
+        for i, char in enumerate(special_code):
+            if not char.isdigit(): continue
+            digit = int(char)
+            
+            base_x = SC_START_X + (i * SC_STEP_X)
+            base_y = SC_START_Y + (digit * SC_STEP_Y)
+            bubble_x = base_x + BUBBLE_NUDGE_X
+            bubble_y = base_y
+            
+            page.draw_circle(fitz.Point(bubble_x, bubble_y), radius=4.5, color=(0,0,0), fill=(0,0,0))
+            
+            box_y = SC_START_Y + SC_TEXT_OFFSET_Y
+            text_pt = fitz.Point(bubble_x + SC_TEXT_OFFSET_X, box_y)
+            page.insert_text(text_pt, char, fontsize=14, color=(0,0,0))
+
+# ================= WORKER THREAD =================
+class Worker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal()
+
+    def __init__(self, file_urls):
+        super().__init__()
+        self.file_urls = file_urls
+        self.blank_pdf_path = resource_path(BLANK_PDF_NAME)
+
+    def run(self):
+        if not os.path.exists(self.blank_pdf_path):
+            self.log_signal.emit(f"ERROR: Could not find blank PDF at {self.blank_pdf_path}")
+            self.finished_signal.emit()
+            return
+
+        # User requested silence on technical details
+        # self.log_signal.emit(f"Load Template: {self.blank_pdf_path}")
+        
+        try:
+            base_doc = fitz.open(self.blank_pdf_path)
+            grid_map = BubblerLogic.map_questions(base_doc)
+            base_doc.close()
+            # User requested silence on technical details
+            # self.log_signal.emit("Grid Mapped successfully.")
+        except Exception as e:
+            self.log_signal.emit(f"CRITICAL ERROR mapping PDF: {e}")
+            self.finished_signal.emit()
+            return
+
+        for file_path in self.file_urls:
+            filename = os.path.basename(file_path)
+            if not filename.lower().endswith('.csv'):
+                self.log_signal.emit(f"Skipping non-CSV: {filename}")
+                continue
+
+            self.log_signal.emit(f"Processing: {filename}...")
+            
+            try:
+                special_code = BubblerLogic.extract_special_code(filename)
+                answers = BubblerLogic.parse_csv(file_path)
+                
+                if special_code == "0000":
+                    self.log_signal.emit(f"  > Warning: No 'vXXXX' in filename. Using code 0000.")
+                
+                doc = fitz.open(self.blank_pdf_path)
+                BubblerLogic.fill_pdf(doc, grid_map, answers, special_code)
+                
+                output_name = os.path.splitext(filename)[0] + ".pdf"
+                output_path = os.path.join(os.path.dirname(file_path), output_name)
+                
+                doc.save(output_path)
+                doc.close()
+                self.log_signal.emit(f"  > Success! Saved: {output_name}")
+                
+            except Exception as e:
+                self.log_signal.emit(f"  > Error: {e}")
+
+        self.finished_signal.emit()
+
+# ================= MAIN GUI =================
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("The AutoBubbler")
+        self.resize(600, 500)
+        self.setAcceptDrops(True)
+        
+        # Set Window Icon using resource_path so it works after bundling
+        icon_path = resource_path(ICON_NAME)
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
+        # Dark Mode Styling
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #1e1e1e;
+            }
+            QLabel {
+                color: #e0e0e0;
+            }
+            QTextEdit {
+                background-color: #252526;
+                color: #d4d4d4;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+            }
+        """)
+
+        # Layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Header
+        self.lbl_title = QLabel("The AutoBubbler")
+        self.lbl_title.setAlignment(Qt.AlignCenter)
+        self.lbl_title.setFont(QFont("Segoe UI", 24, QFont.Bold))
+        # SFU Red for the title
+        self.lbl_title.setStyleSheet("color: #CC0633;") 
+        layout.addWidget(self.lbl_title)
+
+        # Instructions Drop Box
+        self.instruction_style_idle = """
+            QLabel {
+                background-color: #2d2d2d;
+                color: #cccccc;
+                border: 2px dashed #444444;
+                border-radius: 10px;
+                padding: 20px;
+            }
+        """
+        self.instruction_style_active = """
+            QLabel {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                border: 2px solid #CC0633;
+                border-radius: 10px;
+                padding: 20px;
+            }
+        """
+        
+        # HTML Styled Text
+        # We now use manual bullet points (•) and <p> tags to avoid 
+        # the automatic indentation that <ul> tags enforce.
+        self.default_html = (
+            "<h3 align='center'>DRAG AND DROP YOUR ANSWER KEY CSV FILES HERE</h3>"
+            "<p style='line-height: 120%'>"
+            "• CSV format: Question (Column A), Answer (Column B)<br>"
+            "• Filename should include special code as 'v1234' (e.g., PSYC100-v1000.csv)<br>"
+            "• PDF Key will be saved to the same directory as the CSV File<br>"
+            "• PDF Key should be printed in black and white, at 300 or 600 DPI, two-sided, at 100% scale"
+            "</p>"
+        )
+
+        self.lbl_instructions = QLabel(self.default_html)
+        self.lbl_instructions.setFont(QFont("Segoe UI", 11))
+        # Note: We rely on HTML for alignment now, so we DO NOT set global alignment here.
+        self.lbl_instructions.setStyleSheet(self.instruction_style_idle)
+        layout.addWidget(self.lbl_instructions)
+
+        # Log Window
+        self.txt_log = QTextEdit()
+        self.txt_log.setReadOnly(True)
+        self.txt_log.setFont(QFont("Consolas", 10))
+        layout.addWidget(self.txt_log)
+
+        # Footer
+        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.0")
+        self.lbl_footer.setAlignment(Qt.AlignRight)
+        self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
+        layout.addWidget(self.lbl_footer)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.accept()
+            self.lbl_instructions.setStyleSheet(self.instruction_style_active)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.lbl_instructions.setStyleSheet(self.instruction_style_idle)
+
+    def dropEvent(self, event: QDropEvent):
+        self.lbl_instructions.setStyleSheet(self.instruction_style_idle)
+        files = [u.toLocalFile() for u in event.mimeData().urls()]
+        self.start_processing(files)
+
+    def start_processing(self, files):
+        self.txt_log.clear()
+        self.lbl_instructions.setText("<h3 align='center'>Processing...</h3>")
+        
+        self.worker = Worker(files)
+        self.worker.log_signal.connect(self.log_msg)
+        self.worker.finished_signal.connect(self.on_finished)
+        self.worker.start()
+
+    def log_msg(self, msg):
+        self.txt_log.append(msg)
+        # Scroll to bottom
+        sb = self.txt_log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def on_finished(self):
+        self.log_msg("\n--- All Tasks Completed ---")
+        self.lbl_instructions.setText(self.default_html)
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
