@@ -17,7 +17,7 @@
 4. Profit!
 
 ### For MacOS:
-1. Download `AutoBubbler-Mac.zip` from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
+1. Download `AutoBubbler-Mac.zip` if you are on a newer Mac or `AutoBubbler-Mac-Intel.zip` if you are on a pre-2020 Mac that has an Intel processor from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
 2. Once downloaded, double-click on the zip file and move the `AutoBubbler` (or `AutoBubbler.app`) file to somewhere on your computer where you would like the app to live.
 3. The first time you run the app, MacOS will attempt to block it from loading because it is unsigned. To get around this right-click (or Control-click) on the `AutoBubbler.app` file, select `Open`, and then click `Open` again in the dialogue box that appears.
 4. Profit!
@@ -30,7 +30,7 @@
 3. **Drag & Drop:** Drag your CSV file(s) onto the black window.
 4. **Done:** The PDF answer key(s) will appear in the same folder as your CSV(s)!
 
-## Printing Instructions (Important)
+## Printing Instructions (Important!)
 In order for the keys to be scanned by Document Solutions, you **must** print them with the following specifications:
 * **DPI:** 300 or 600 DPI.
 * **Color:** Black and White.
