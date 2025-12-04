@@ -45,4 +45,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Mac
-          path: dist/AutoBubbler.app
+          # Changing path to 'dist' uploads the parent folder containing AutoBubbler.app
+          # This ensures that when unzipped, it retains the .app extension and folder structure
+          path: dist
