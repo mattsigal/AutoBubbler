@@ -1,0 +1,35 @@
+name: Build Mac App
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Allows you to manually trigger the build button
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install PySide6 pymupdf pyinstaller
+
+      - name: Build App
+        # Note the colon (:) separators for Mac, different from Windows (;)
+        run: |
+          pyinstaller --noconsole --onefile --name "AutoBubbler" --icon "AutoBubbler.icns" --add-data "DocSolScantron.pdf:." --add-data "AutoBubbler.ico:." AutoBubbler.py
+
+      # This uploads the finished .app so you can download it
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoBubbler-Mac
+          path: dist/AutoBubbler.app

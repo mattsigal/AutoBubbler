@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+
+# PyInstaller builds (We do not want these in source control)
+build/
+dist/
+
+# Windows temporary files
+Thumbs.db
+[Dd]esktop.ini
+
+# macOS temporary files
+.DS_Store
+
+# SECURITY: Ignore all CSV files to prevent accidental upload of student grades
+*.csv
+
+# Allow a specific example file if you create one later (optional)
+# !example_key.csv
+
+# Ignore generated PDFs (output)
+*.pdf
+!DocSolScantron.pdf  # Exception: Keep the blank template!
