@@ -2,9 +2,10 @@
 __pycache__/
 *.py[cod]
 
-# PyInstaller builds (We do not want these in source control)
+# PyInstaller builds
 build/
 dist/
+AutoBubbler.spec
 
 # Windows temporary files
 Thumbs.db
@@ -16,9 +17,5 @@ Thumbs.db
 # SECURITY: Ignore all CSV files to prevent accidental upload of student grades
 *.csv
 
-# Allow a specific example file if you create one later (optional)
-# !example_key.csv
-
 # Ignore generated PDFs (output)
 *.pdf
-!DocSolScantron.pdf  # Exception: Keep the blank template!
