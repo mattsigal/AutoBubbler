@@ -3,7 +3,11 @@ name: Build Windows App
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   build-windows:
@@ -19,20 +23,17 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        # We include pillow here just in case, though Windows handles .ico files natively better than Mac
         run: |
           pip install PySide6 pymupdf pyinstaller cryptography pillow
 
       - name: Decrypt Template
         env:
           PDF_KEY: ${{ secrets.PDF_KEY }}
-        # The python command works the same on Windows/PowerShell for this one-liner
         run: |
            python -c "from cryptography.fernet import Fernet; import os; key = os.environ['PDF_KEY']; f = Fernet(key.encode()); data = open('DocSolScantron.enc', 'rb').read(); open('DocSolScantron.pdf', 'wb').write(f.decrypt(data))"
 
       - name: Build App
-        # CRITICAL CHANGE: Windows uses a semicolon (;) separator for --add-data
-        # We stick with AutoBubbler.ico here. If it fails, we can switch to .png like the Mac build.
+        # Windows uses a semicolon (;) separator for --add-data
         run: |
           pyinstaller --noconsole --onefile --name "AutoBubbler" --icon "AutoBubbler.ico" --add-data "DocSolScantron.pdf;." --add-data "AutoBubbler.ico;." AutoBubbler.py
 
@@ -40,5 +41,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Windows
-          # On Windows, PyInstaller creates a single .exe file
           path: dist/AutoBubbler.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/AutoBubbler.exe
