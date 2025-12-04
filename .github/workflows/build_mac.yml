@@ -3,7 +3,7 @@ name: Build Mac App
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Allows you to manually trigger the build button
+  workflow_dispatch:
 
 jobs:
   build-mac:
@@ -18,16 +18,27 @@ jobs:
         with:
           python-version: '3.11'
 
+      # We verify the .enc file exists here
+      - name: List files (Debug)
+        run: ls -la
+
       - name: Install Dependencies
+        # We added 'cryptography' to this list so we can decrypt the file
         run: |
-          pip install PySide6 pymupdf pyinstaller
+          pip install PySide6 pymupdf pyinstaller cryptography
+
+      # This step recreates the PDF from the encrypted file using your Secret Key
+      - name: Decrypt Template
+        env:
+          PDF_KEY: ${{ secrets.PDF_KEY }}
+        run: |
+           python -c "from cryptography.fernet import Fernet; import os; key = os.environ['PDF_KEY']; f = Fernet(key.encode()); data = open('DocSolScantron.enc', 'rb').read(); open('DocSolScantron.pdf', 'wb').write(f.decrypt(data))"
 
       - name: Build App
-        # Note the colon (:) separators for Mac, different from Windows (;)
+        # Now that DocSolScantron.pdf exists, PyInstaller can bundle it!
         run: |
           pyinstaller --noconsole --onefile --name "AutoBubbler" --icon "AutoBubbler.icns" --add-data "DocSolScantron.pdf:." --add-data "AutoBubbler.ico:." AutoBubbler.py
 
-      # This uploads the finished .app so you can download it
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
