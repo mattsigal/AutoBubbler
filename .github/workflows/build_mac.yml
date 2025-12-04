@@ -24,8 +24,9 @@ jobs:
 
       - name: Install Dependencies
         # We added 'cryptography' to this list so we can decrypt the file
+        # Added 'pillow' to fix icon processing error in PyInstaller
         run: |
-          pip install PySide6 pymupdf pyinstaller cryptography
+          pip install PySide6 pymupdf pyinstaller cryptography pillow
 
       # This step recreates the PDF from the encrypted file using your Secret Key
       - name: Decrypt Template
