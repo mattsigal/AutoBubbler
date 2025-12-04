@@ -41,9 +41,7 @@ PAGE1_MIN_Y = 550
 
 # ================= CORE LOGIC =================
 
-class BubblerLogic:
-    """Contains the original logic from TheBubbler.py, adapted for the GUI."""
-    
+class BubblerLogic:   
     @staticmethod
     def parse_csv(filepath):
         answers = {}
@@ -188,16 +186,12 @@ class Worker(QThread):
             self.log_signal.emit(f"ERROR: Could not find blank PDF at {self.blank_pdf_path}")
             self.finished_signal.emit()
             return
-
-        # User requested silence on technical details
-        # self.log_signal.emit(f"Load Template: {self.blank_pdf_path}")
         
         try:
             base_doc = fitz.open(self.blank_pdf_path)
             grid_map = BubblerLogic.map_questions(base_doc)
             base_doc.close()
-            # User requested silence on technical details
-            # self.log_signal.emit("Grid Mapped successfully.")
+        
         except Exception as e:
             self.log_signal.emit(f"CRITICAL ERROR mapping PDF: {e}")
             self.finished_signal.emit()
@@ -297,22 +291,18 @@ class MainWindow(QMainWindow):
             }
         """
         
-        # HTML Styled Text
-        # We now use manual bullet points (•) and <p> tags to avoid 
-        # the automatic indentation that <ul> tags enforce.
         self.default_html = (
-            "<h3 align='center'>DRAG AND DROP YOUR ANSWER KEY CSV FILES HERE</h3>"
+            "<h3 align='center'>DRAG AND DROP YOUR ANSWER KEY CSV FILE(S) HERE</h3>"
             "<p style='line-height: 120%'>"
-            "• CSV format: Question (Column A), Answer (Column B)<br>"
+            "• CSV format: Question Number (Column A), Answer (Column B)<br>"
             "• Filename should include special code as 'v1234' (e.g., PSYC100-v1000.csv)<br>"
-            "• PDF Key will be saved to the same directory as the CSV File<br>"
-            "• PDF Key should be printed in black and white, at 300 or 600 DPI, two-sided, at 100% scale"
+            "• PDF key will be saved to the same directory as the CSV file<br>"
+            "• PDF key should be printed in black and white, two-sided, at 300 or 600 DPI and 100% scale"
             "</p>"
         )
 
         self.lbl_instructions = QLabel(self.default_html)
         self.lbl_instructions.setFont(QFont("Segoe UI", 11))
-        # Note: We rely on HTML for alignment now, so we DO NOT set global alignment here.
         self.lbl_instructions.setStyleSheet(self.instruction_style_idle)
         layout.addWidget(self.lbl_instructions)
 
@@ -323,7 +313,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.txt_log)
 
         # Footer
-        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.0")
+        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.1")
         self.lbl_footer.setAlignment(Qt.AlignRight)
         self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
         layout.addWidget(self.lbl_footer)
@@ -354,7 +344,6 @@ class MainWindow(QMainWindow):
 
     def log_msg(self, msg):
         self.txt_log.append(msg)
-        # Scroll to bottom
         sb = self.txt_log.verticalScrollBar()
         sb.setValue(sb.maximum())
 
