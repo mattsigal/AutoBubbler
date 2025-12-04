@@ -65,7 +65,7 @@ class BubblerLogic:
         match = re.search(r"v(\d+)", filename)
         if match:
             return match.group(1)
-        return "0000"
+        return None # Changed from "0000" to None so we can distinguish between explicit v0000 and missing code
 
     @staticmethod
     def get_center(bbox):
@@ -210,7 +210,9 @@ class Worker(QThread):
                 special_code = BubblerLogic.extract_special_code(filename)
                 answers = BubblerLogic.parse_csv(file_path)
                 
-                if special_code == "0000":
+                # Logic Fix: Only warn if code was genuinely missing (None), not if it was explicitly "0000"
+                if special_code is None:
+                    special_code = "0000"
                     self.log_signal.emit(f"  > Warning: No 'vXXXX' in filename. Using code 0000.")
                 
                 doc = fitz.open(self.blank_pdf_path)
@@ -298,7 +300,7 @@ class MainWindow(QMainWindow):
             "• CSV format: Question Number (Column A), Answer (Column B)<br>"
             "• Filename should include special code as 'v1234' (e.g., PSYC100-v1000.csv)<br>"
             "• PDF key will be saved to the same directory as the CSV file<br>"
-            "• PDF key should be printed in black and white, two-sided, at 300 or 600 DPI and 100% scale"
+            "• PDF key MUST be printed in black and white, two-sided, at 300 or 600 DPI, and 100% scale"
             "</p>"
         )
 
@@ -341,7 +343,7 @@ class MainWindow(QMainWindow):
         footer_layout.addStretch()
 
         # Version Label
-        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.1")
+        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.2")
         self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
         footer_layout.addWidget(self.lbl_footer)
 
