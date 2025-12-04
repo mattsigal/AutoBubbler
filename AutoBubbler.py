@@ -4,7 +4,8 @@ import csv
 import re
 import fitz  # PyMuPDF
 from PySide6.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
-                               QWidget, QTextEdit, QProgressBar, QMessageBox)
+                               QWidget, QTextEdit, QProgressBar, QMessageBox, 
+                               QPushButton, QHBoxLayout) # Added QPushButton, QHBoxLayout
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QDropEvent, QDragEnterEvent, QIcon
 
@@ -312,11 +313,52 @@ class MainWindow(QMainWindow):
         self.txt_log.setFont(QFont("Consolas", 10))
         layout.addWidget(self.txt_log)
 
-        # Footer
+        # Footer Layout
+        footer_layout = QHBoxLayout()
+        
+        # Sample Button
+        self.btn_sample = QPushButton("Generate Sample CSV")
+        self.btn_sample.setFixedSize(140, 25)
+        self.btn_sample.setCursor(Qt.PointingHandCursor)
+        self.btn_sample.setStyleSheet("""
+            QPushButton {
+                background-color: #333333;
+                color: #aaaaaa;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #444444;
+                color: #ffffff;
+                border: 1px solid #777777;
+            }
+        """)
+        self.btn_sample.clicked.connect(self.generate_sample_csv)
+        footer_layout.addWidget(self.btn_sample)
+
+        # Spacer
+        footer_layout.addStretch()
+
+        # Version Label
         self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.1")
-        self.lbl_footer.setAlignment(Qt.AlignRight)
         self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
-        layout.addWidget(self.lbl_footer)
+        footer_layout.addWidget(self.lbl_footer)
+
+        layout.addLayout(footer_layout)
+
+    def generate_sample_csv(self):
+        filename = "PSYCXXX-v0000-key.csv"
+        content = "Question,Answer\n1,A"
+        
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(content)
+            self.log_msg(f"Generated sample file: {filename}")
+            # Optional: Open the folder to show the user
+            # os.startfile(os.getcwd()) 
+        except Exception as e:
+            self.log_msg(f"Error generating sample: {e}")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
