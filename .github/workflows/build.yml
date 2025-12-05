@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  # JOB 1: WINDOWS
+# JOB 1: WINDOWS
   build-windows:
     runs-on: windows-latest
     steps:
@@ -27,17 +27,17 @@ jobs:
           python -c "from cryptography.fernet import Fernet; import os; key = os.environ['PDF_KEY']; f = Fernet(key.encode()); data = open('DocSolScantron.enc', 'rb').read(); open('DocSolScantron.pdf', 'wb').write(f.decrypt(data))"
       
       - name: Build App
-        run: pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.pdf;." --add-data "AutoBubbler.ico;." AutoBubbler.py
+        run: pyinstaller --onefile --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.pdf;." --add-data "AutoBubbler.ico;." AutoBubbler.py
 
       - name: Zip for Release
-        run: Compress-Archive -Path dist/AutoBubbler -DestinationPath dist/AutoBubbler-Windows.zip
+        run: Compress-Archive -Path dist/AutoBubbler.exe -DestinationPath dist/AutoBubbler-Windows.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Windows
-          path: dist/AutoBubbler 
-
+          path: dist/AutoBubbler.exe
+      
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
