@@ -13,14 +13,16 @@
 ### For Windows:
 1. Download `AutoBubbler-Win.exe` from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
 2. Place it in a folder (it does not need any other files to run).
-3. Run the app.
+3. Double click `AutoBubbler-Win.exe` to run the app.
 4. Profit!
 
 ### For MacOS:
 1. Download `AutoBubbler-Mac.zip` if you are on a newer Mac or `AutoBubbler-Mac-Intel.zip` if you are on a pre-2020 Mac that has an Intel processor from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
-2. Once downloaded, double-click on the zip file and move the `AutoBubbler` (or `AutoBubbler.app`) file to somewhere on your computer where you would like the app to live.
-3. The first time you run the app, MacOS will attempt to block it from loading because it is unsigned. To get around this right-click (or Control-click) on the `AutoBubbler.app` file, select `Open`, and then click `Open` again in the dialogue box that appears.
-4. Profit!
+2. Unarchive the zip file if needed (depending on your browser, it may automatically extract itself and you will just see `AutoBubbler` in your Downloads directory with an icon)
+3. Move the app to your Applications folder and try to open it. It will produce an error message about being "unsigned".
+4. Open System Preferences and go to "Privacy & Security"
+5. Near the bottom of the System Preferences page, under "Security", ensure "Allow applications from" is set to "App Store & Known Developers" and then look below that for `AutoBubbler` listed under "Recently Denied Applications". Click the `Open Anyways` button, and `Open Anyways` again in the pop-up.
+6. Double click the app to launch it!
 
 ## Usage
 1. **Prepare your CSV File(s):**
