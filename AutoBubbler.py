@@ -453,7 +453,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.txt_log)
 
         # Disclaimer
-        self.lbl_disclaimer = QLabel("IMPORTANT: Do NOT duplicate or distribute generated PDFs for student use.\nThis app is only intended for generating answer keys. Students must submit authentic Scantron forms to Document Solutions for grading purposes.")
+        self.lbl_disclaimer = QLabel("IMPORTANT: Do NOT duplicate or distribute generated PDFs for student use.\nThis app is only intended for generating answer keys.\nStudents MUST submit authentic Scantron forms to Document Solutions for grading purposes.")
         self.lbl_disclaimer.setAlignment(Qt.AlignCenter)
         self.lbl_disclaimer.setStyleSheet("color: #ffaa00; font-size: 11px; font-weight: bold; margin-top: 5px;")
         layout.addWidget(self.lbl_disclaimer)
@@ -486,7 +486,7 @@ class MainWindow(QMainWindow):
         footer_layout.addStretch()
 
         # Version Label
-        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.3")
+        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.4")
         self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
         footer_layout.addWidget(self.lbl_footer)
 
