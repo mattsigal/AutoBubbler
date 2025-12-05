@@ -11,18 +11,25 @@
 **The AutoBubbler** is availalable for Windows and Mac. In both cases, no installer is required; however, there are a few small issues with running it on Mac that you should be aware of.
 
 ### For Windows:
-1. Download `AutoBubbler-Win.exe` from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
-2. Place it in a folder (it does not need any other files to run).
+1. Download `AutoBubbler-Win.zip` from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
+2. Unzip and place `AutoBubbler-Win.exe` in a folder (it does not need any other files to run).
 3. Double click `AutoBubbler-Win.exe` to run the app.
 4. Profit!
 
 ### For MacOS:
-1. Download `AutoBubbler-Mac.zip` if you are on a newer Mac or `AutoBubbler-Mac-Intel.zip` if you are on a pre-2020 Mac that has an Intel processor from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
+1. Download `AutoBubbler-Mac-Silicon.zip` if you are on a newer Mac or `AutoBubbler-Mac-Intel.zip` if you are on a pre-2020 Mac that has an Intel processor from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
 2. Unarchive the zip file if needed (depending on your browser, it may automatically extract itself and you will just see `AutoBubbler` in your Downloads directory with an icon)
 3. Move the app to your Applications folder and try to open it. It will produce an error message about being "unsigned".
+
+#### If you are on a Silicon-based Mac:
 4. Open System Preferences and go to "Privacy & Security"
 5. Near the bottom of the System Preferences page, under "Security", ensure "Allow applications from" is set to "App Store & Known Developers" and then look below that for `AutoBubbler` listed under "Recently Denied Applications". Click the `Open Anyways` button, and `Open Anyways` again in the pop-up.
-6. Double click the app to launch it!
+6. Double click the app to launch!
+
+#### If you are on an older Intel-based Mac:
+4. Open System Preferences and go to "Security & Privacy"
+5. Click on the first "General" tab and near the bottom, ensure "Allow applications from" is set to "App Store & Known Developers" and then look below that for `AutoBubbler` listed under "Recently Denied Applications". Click the `Open Anyways` button, and `Open Anyways` again in the pop-up.
+6. Double click the app to launch!
 
 ## Usage
 1. **Prepare your CSV File(s):**
