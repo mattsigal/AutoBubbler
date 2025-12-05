@@ -22,6 +22,7 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Note: We are keeping the pinned version 6.6.1 for macOS 12 compatibility
       - name: Install Dependencies
         run: |
           pip install "PySide6==6.6.1" pymupdf pyinstaller cryptography pillow
@@ -33,21 +34,20 @@ jobs:
            python -c "from cryptography.fernet import Fernet; import os; key = os.environ['PDF_KEY']; f = Fernet(key.encode()); data = open('DocSolScantron.enc', 'rb').read(); open('DocSolScantron.pdf', 'wb').write(f.decrypt(data))"
 
       - name: Build App
-        # Building on Intel automatically creates an x86_64 executable
         run: |
-          pyinstaller --noconsole --onefile --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.pdf:." --add-data "AutoBubbler.ico:." AutoBubbler.py
+          pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.pdf:." --add-data "AutoBubbler.ico:." AutoBubbler.py
+
+      - name: Zip Application
+        run: |
+          cd dist
+          ditto -c -k --keepParent AutoBubbler.app AutoBubbler-Mac-Intel.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Mac-Intel
-          path: dist
-
-      - name: Zip Application
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          cd dist
-          ditto -c -k --keepParent AutoBubbler.app AutoBubbler-Mac-Intel.zip
+          # We now upload ONLY the zip, not the whole folder
+          path: dist/AutoBubbler-Mac-Intel.zip
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
