@@ -350,7 +350,7 @@ class MainWindow(QMainWindow):
         footer_layout.addStretch()
 
         # Version Label
-        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.2")
+        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.3")
         self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
         footer_layout.addWidget(self.lbl_footer)
 
