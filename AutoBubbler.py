@@ -435,8 +435,9 @@ class MainWindow(QMainWindow):
             "<p style='line-height: 120%'>"
             "• CSV format: Question Number (Column A), Answer (Column B)<br>"
             "• Filename should include special code as 'v1234' (e.g., PSYC100-v1000.csv)<br>"
-            "• PDF key will be saved to the same directory as the CSV file (or Desktop if read-only)<br>"
-            "• PDF key MUST be printed in black and white, two-sided, at 300 or 600 DPI, and 100% scale"
+            "• Filename can also include section number (e.g., -D106)<br>" 
+            "• PDF key will be saved to the same directory as the CSV file (or your Desktop if read-only)<br>"
+            "• PDF key <span style='color: #ff3333; font-weight: bold;'>MUST</span> be printed in black and white, two-sided, at 300 or 600 DPI, and 100% scale"
             "</p>"
         )
 
@@ -452,7 +453,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.txt_log)
 
         # Disclaimer
-        self.lbl_disclaimer = QLabel("IMPORTANT: Do not duplicate generated PDFs for student use.\nThis app is for Answer Keys only. Students must submit authentic Scantron forms.")
+        self.lbl_disclaimer = QLabel("IMPORTANT: Do NOT duplicate or distribute generated PDFs for student use.\nThis app is only intended for generating answer keys. Students must submit authentic Scantron forms to Document Solutions for grading purposes.")
         self.lbl_disclaimer.setAlignment(Qt.AlignCenter)
         self.lbl_disclaimer.setStyleSheet("color: #ffaa00; font-size: 11px; font-weight: bold; margin-top: 5px;")
         layout.addWidget(self.lbl_disclaimer)
