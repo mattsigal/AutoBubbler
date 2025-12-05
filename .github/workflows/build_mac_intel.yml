@@ -24,7 +24,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install PySide6 pymupdf pyinstaller cryptography pillow
+          pip install "PySide6==6.6.1" pymupdf pyinstaller cryptography pillow
 
       - name: Decrypt Template
         env:
