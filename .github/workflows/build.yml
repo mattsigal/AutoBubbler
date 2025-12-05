@@ -20,14 +20,8 @@ jobs:
           python-version: '3.11'
       - name: Install Dependencies
         run: pip install PySide6 pymupdf pyinstaller cryptography pillow
-      - name: Decrypt Template
-        env:
-          PDF_KEY: ${{ secrets.PDF_KEY }}
-        run: |
-          python -c "from cryptography.fernet import Fernet; import os; key = os.environ['PDF_KEY']; f = Fernet(key.encode()); data = open('DocSolScantron.enc', 'rb').read(); open('DocSolScantron.pdf', 'wb').write(f.decrypt(data))"
-      
       - name: Build App
-        run: pyinstaller --onefile --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.pdf;." --add-data "AutoBubbler.ico;." AutoBubbler.py
+        run: pyinstaller --onefile --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.enc;." --add-data "AutoBubbler.ico;." AutoBubbler.py
 
       - name: Zip for Release
         run: Compress-Archive -Path dist/AutoBubbler.exe -DestinationPath dist/AutoBubbler-Windows.zip
@@ -54,14 +48,8 @@ jobs:
           python-version: '3.11'
       - name: Install Dependencies
         run: pip install PySide6 pymupdf pyinstaller cryptography pillow
-      - name: Decrypt Template
-        env:
-          PDF_KEY: ${{ secrets.PDF_KEY }}
-        run: |
-          python -c "from cryptography.fernet import Fernet; import os; key = os.environ['PDF_KEY']; f = Fernet(key.encode()); data = open('DocSolScantron.enc', 'rb').read(); open('DocSolScantron.pdf', 'wb').write(f.decrypt(data))"
-      
       - name: Build App
-        run: pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.pdf:." AutoBubbler.py
+        run: pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.enc:." AutoBubbler.py
 
       - name: Zip for Release
         run: |
@@ -90,14 +78,8 @@ jobs:
           python-version: '3.11'
       - name: Install Dependencies
         run: pip install PySide6 pymupdf pyinstaller cryptography pillow
-      - name: Decrypt Template
-        env:
-          PDF_KEY: ${{ secrets.PDF_KEY }}
-        run: |
-          python -c "from cryptography.fernet import Fernet; import os; key = os.environ['PDF_KEY']; f = Fernet(key.encode()); data = open('DocSolScantron.enc', 'rb').read(); open('DocSolScantron.pdf', 'wb').write(f.decrypt(data))"
-      
       - name: Build App
-        run: pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.pdf:." AutoBubbler.py
+        run: pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.enc:." AutoBubbler.py
 
       - name: Zip for Release
         run: |

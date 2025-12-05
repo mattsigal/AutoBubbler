@@ -3,7 +3,9 @@ import os
 import csv
 import re
 import fitz  # PyMuPDF
+import fitz  # PyMuPDF
 import subprocess # Added for opening folders on Mac
+from cryptography.fernet import Fernet # For decryption
 from PySide6.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
                                QWidget, QTextEdit, QProgressBar, QMessageBox, 
                                QPushButton, QHBoxLayout)
@@ -24,8 +26,11 @@ def get_desktop_path():
     """ Cross-platform way to get the Desktop path """
     return os.path.join(os.path.expanduser("~"), "Desktop")
 
-BLANK_PDF_NAME = "DocSolScantron.pdf"
+    return os.path.join(os.path.expanduser("~"), "Desktop")
+
+BLANK_PDF_NAME = "DocSolScantron.enc" # Now using encrypted file
 ICON_NAME = "AutoBubbler.ico" 
+EMBEDDED_KEY = b"K19UjqIKt63Ff2SjTHfU6wgj_5sRL-oejBjT1tmBZ50="
 
 # GEOMETRY: SPECIAL CODE (Manual Grid)
 SC_START_X = 511.5
@@ -33,6 +38,10 @@ SC_START_Y = 351.5
 SC_STEP_X = 15.0
 SC_STEP_Y = 17.0
 BUBBLE_NUDGE_X = -1.0 
+
+# GEOMETRY: SECTION
+SECTION_START_X = 435.0
+SECTION_LETTER_MAP = {'D': 0, 'E': 1, 'C': 2, 'F': 3, 'S': 4, 'T': 5}
 
 # GEOMETRY: SPECIAL CODE TEXT
 SC_TEXT_OFFSET_X = -7
@@ -66,6 +75,17 @@ class BubblerLogic:
         match = re.search(r"v(\d+)", filename)
         if match:
             return match.group(1)
+        return None 
+
+    @staticmethod
+    def extract_section_code(filename):
+        search_name = filename.upper()
+        # Look for pattern: Letter + 3 Digits (e.g. D100, E203)
+        # We look for valid letters only: D, E, C, F, S, T
+        # Use word boundaries \b to avoid matching things like "PSYC301" -> "C301"
+        match = re.search(r"\b([DECFST])\s*(\d{3})\b", search_name)
+        if match:
+            return match.group(1) + match.group(2) # e.g. "D100"
         return None 
 
     @staticmethod
@@ -146,7 +166,7 @@ class BubblerLogic:
         return mapping
 
     @staticmethod
-    def fill_pdf(doc, q_map, answers, special_code):
+    def fill_pdf(doc, q_map, answers, special_code, ref_text, section_code=None):
         # 1. FILL QUESTIONS
         for q, choice in answers.items():
             if q in q_map and choice in q_map[q]:
@@ -172,6 +192,89 @@ class BubblerLogic:
             box_y = SC_START_Y + SC_TEXT_OFFSET_Y
             text_pt = fitz.Point(bubble_x + SC_TEXT_OFFSET_X, box_y)
             page.insert_text(text_pt, char, fontsize=14, color=(0,0,0))
+            
+        # 3. FILL SECTION CODE (if present)
+        if section_code:
+            # section_code is e.g. "D100"
+            # Char 0 is Letter, chars 1-3 are digits
+            
+            for i, char in enumerate(section_code):
+                base_x = SECTION_START_X + (i * SC_STEP_X)
+                row_idx = -1
+                
+                if i == 0: # Letter Column
+                    if char in SECTION_LETTER_MAP:
+                        row_idx = SECTION_LETTER_MAP[char]
+                else: # Digit Columns
+                    if char.isdigit():
+                        row_idx = int(char)
+                
+                if row_idx != -1:
+                     base_y = SC_START_Y + (row_idx * SC_STEP_Y)
+                     bubble_x = base_x + BUBBLE_NUDGE_X
+                     bubble_y = base_y
+                     
+                     # Fill Bubble
+                     page.draw_circle(fitz.Point(bubble_x, bubble_y), radius=4.5, color=(0,0,0), fill=(0,0,0))
+                
+                # Draw Text (always draw text even if mapping failed? or only if valid? Let's draw valid chars)
+                # The text is drawn at the top box (which is above row 0? Or just using the standard offset logic?)
+                # For Special Code, the text logic was independent of the row_idx of the bubble.
+                # However, in Special Code loop:
+                # box_y = SC_START_Y + SC_TEXT_OFFSET_Y -> this meant the text was printed relative to Row 0 START Y.
+                # So it prints nicely in the box above.
+                
+                bubble_x_text = base_x + BUBBLE_NUDGE_X
+                box_y = SC_START_Y + SC_TEXT_OFFSET_Y
+                # Nudge text slightly right for Section boxes (approx +1.5)
+                text_pt = fitz.Point(bubble_x_text + SC_TEXT_OFFSET_X + 1.5, box_y)
+                page.insert_text(text_pt, char, fontsize=14, color=(0,0,0))
+
+        # 4. PRINT REFERENCE FILENAME
+            
+        # 3. PRINT REFERENCE FILENAME
+        # Prints the source filename (e.g. "PSYC100-v1000") at the top center
+        # to help instructors identify which key is which.
+        
+        # Calculate text width to center it (approximate)
+        # Page width is usually 612 for Letter. 
+        # We can just center it by using insert_text with align (if supported) or simple math.
+        # But for basics, let's put it at (306, 50) and align center if possible 
+        # or just visually guess.
+        
+        # A better way with PyMuPDF for centering:
+        rect = page.rect
+        mid_x = rect.width / 2
+        top_y = 60 # Slightly below top margin
+        
+        
+        # We need the filename here. Since we are in a static method, we need to pass it in.
+        # However, we are currently inside fill_pdf which receives 'answers' and 'special_code'.
+        # We will update the signature to accept 'filename_text' or similar.
+        
+        # Using insert_text with 'morph' to center is complex, simpler to use basic font width estimation
+        # or just hardcode a reasonable center if font is monospaced or standard.
+        # But actually fitz.TextWriter is good for this, but let's stick to simple insert_text.
+        # We will assume "center" is roughly x=306 (Letter width 612).
+        # We'll use a standard font like Helvetica-Bold.
+        
+        text_len = fitz.get_text_length(ref_text, fontname="helv", fontsize=12)
+        start_x = mid_x - (text_len / 2)
+        
+        # Draw box padding
+        padding_x = 10
+        padding_y = 5
+        
+        rect_x0 = start_x - padding_x
+        rect_y0 = top_y - 12 - padding_y # 12 is approx cap height/ascent for size 12
+        rect_x1 = start_x + text_len + padding_x
+        rect_y1 = top_y + padding_y # descent is small
+        
+        # Draw Rectangle (stroked, not filled)
+        page.draw_rect(fitz.Rect(rect_x0, rect_y0, rect_x1, rect_y1), color=(0,0,0), width=1)
+        
+        page.insert_text(fitz.Point(start_x, top_y), ref_text, fontname="helv", fontsize=12, color=(0,0,0))
+
 
 # ================= WORKER THREAD =================
 class Worker(QThread):
@@ -190,12 +293,22 @@ class Worker(QThread):
             return
         
         try:
-            base_doc = fitz.open(self.blank_pdf_path)
+            # IN-MEMORY DECRYPTION
+            # 1. Read Encrypted File
+            with open(self.blank_pdf_path, "rb") as f:
+                enc_data = f.read()
+            
+            # 2. Decrypt
+            fernet = Fernet(EMBEDDED_KEY)
+            pdf_bytes = fernet.decrypt(enc_data)
+            
+            # 3. Load from bytes (never save to disk)
+            base_doc = fitz.open("pdf", pdf_bytes)
             grid_map = BubblerLogic.map_questions(base_doc)
             base_doc.close()
         
         except Exception as e:
-            self.log_signal.emit(f"CRITICAL ERROR mapping PDF: {e}")
+            self.log_signal.emit(f"CRITICAL ERROR mapping/decrypting PDF: {e}")
             self.finished_signal.emit()
             return
 
@@ -209,14 +322,30 @@ class Worker(QThread):
             
             try:
                 special_code = BubblerLogic.extract_special_code(filename)
+                section_code = BubblerLogic.extract_section_code(filename)
                 answers = BubblerLogic.parse_csv(file_path)
                 
                 if special_code is None:
                     special_code = "0000"
                     self.log_signal.emit(f"  > Warning: No 'vXXXX' in filename. Using code 0000.")
                 
-                doc = fitz.open(self.blank_pdf_path)
-                BubblerLogic.fill_pdf(doc, grid_map, answers, special_code)
+                if section_code:
+                     self.log_signal.emit(f"  > Found Section Code: {section_code}")
+                
+                # Re-open blank doc from memory for each file
+                # Since 'pdf_bytes' from above is available in scope (or we should make it self)
+                # Correction: pdf_bytes variable is local to the try/except block above.
+                # We should move decryption to __init__ or start of run and store it in self.pdf_bytes
+                
+                # Let's fix the logic flow slightly by moving decryption up.
+                # Actually, simpler to just re-decrypt or better yet, store decoded bytes.
+                
+                doc = fitz.open("pdf", pdf_bytes)
+                
+                # filename without extension for the reference text
+                ref_text = os.path.splitext(filename)[0]
+                
+                BubblerLogic.fill_pdf(doc, grid_map, answers, special_code, ref_text, section_code)
                 
                 output_name = os.path.splitext(filename)[0] + ".pdf"
                 source_dir = os.path.dirname(file_path)
@@ -321,6 +450,12 @@ class MainWindow(QMainWindow):
         self.txt_log.setReadOnly(True)
         self.txt_log.setFont(QFont("Consolas", 10))
         layout.addWidget(self.txt_log)
+
+        # Disclaimer
+        self.lbl_disclaimer = QLabel("IMPORTANT: Do not duplicate generated PDFs for student use.\nThis app is for Answer Keys only. Students must submit authentic Scantron forms.")
+        self.lbl_disclaimer.setAlignment(Qt.AlignCenter)
+        self.lbl_disclaimer.setStyleSheet("color: #ffaa00; font-size: 11px; font-weight: bold; margin-top: 5px;")
+        layout.addWidget(self.lbl_disclaimer)
 
         # Footer Layout
         footer_layout = QHBoxLayout()
