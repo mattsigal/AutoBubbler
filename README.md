@@ -11,9 +11,9 @@
 **The AutoBubbler** is availalable for Windows and Mac. In both cases, no installer is required; however, there are a few small issues with running it on Mac that you should be aware of.
 
 ### For Windows:
-1. Download `AutoBubbler-Win.zip` from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
-2. Unzip and place `AutoBubbler-Win.exe` in a folder (it does not need any other files to run).
-3. Double click `AutoBubbler-Win.exe` to run the app.
+1. Download `AutoBubbler-Windows.zip` from the [Releases](https://github.com/mattsigal/AutoBubbler/releases) page.
+2. Unzip and place `AutoBubbler.exe` in a folder (it does not need any other files to run).
+3. Double click `AutoBubbler.exe` to run the app.
 4. Profit!
 
 ### For MacOS:
