@@ -3,9 +3,10 @@ import os
 import csv
 import re
 import fitz  # PyMuPDF
+import subprocess # Added for opening folders on Mac
 from PySide6.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
                                QWidget, QTextEdit, QProgressBar, QMessageBox, 
-                               QPushButton, QHBoxLayout) # Added QPushButton, QHBoxLayout
+                               QPushButton, QHBoxLayout)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QDropEvent, QDragEnterEvent, QIcon
 
@@ -13,16 +14,17 @@ from PySide6.QtGui import QFont, QDropEvent, QDragEnterEvent, QIcon
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        # Use the script's own directory
         base_path = os.path.dirname(os.path.abspath(__file__))
 
     return os.path.join(base_path, relative_path)
 
+def get_desktop_path():
+    """ Cross-platform way to get the Desktop path """
+    return os.path.join(os.path.expanduser("~"), "Desktop")
+
 BLANK_PDF_NAME = "DocSolScantron.pdf"
-# UPDATED: Matches your filename
 ICON_NAME = "AutoBubbler.ico" 
 
 # GEOMETRY: SPECIAL CODE (Manual Grid)
@@ -41,7 +43,6 @@ Q_SYMBOLS = {33: "A", 35: "B", 36: "C", 37: "D", 38: "E"}
 PAGE1_MIN_Y = 550  
 
 # ================= CORE LOGIC =================
-
 class BubblerLogic:   
     @staticmethod
     def parse_csv(filepath):
@@ -65,7 +66,7 @@ class BubblerLogic:
         match = re.search(r"v(\d+)", filename)
         if match:
             return match.group(1)
-        return None # Changed from "0000" to None so we can distinguish between explicit v0000 and missing code
+        return None 
 
     @staticmethod
     def get_center(bbox):
@@ -210,7 +211,6 @@ class Worker(QThread):
                 special_code = BubblerLogic.extract_special_code(filename)
                 answers = BubblerLogic.parse_csv(file_path)
                 
-                # Logic Fix: Only warn if code was genuinely missing (None), not if it was explicitly "0000"
                 if special_code is None:
                     special_code = "0000"
                     self.log_signal.emit(f"  > Warning: No 'vXXXX' in filename. Using code 0000.")
@@ -219,11 +219,20 @@ class Worker(QThread):
                 BubblerLogic.fill_pdf(doc, grid_map, answers, special_code)
                 
                 output_name = os.path.splitext(filename)[0] + ".pdf"
-                output_path = os.path.join(os.path.dirname(file_path), output_name)
+                source_dir = os.path.dirname(file_path)
+                
+                # --- MAC FIX: Check if Source Directory is Writable ---
+                # If running from a translocated/quarantined path, source_dir might be read-only.
+                # If so, fallback to Desktop.
+                if os.access(source_dir, os.W_OK):
+                    output_path = os.path.join(source_dir, output_name)
+                else:
+                    output_path = os.path.join(get_desktop_path(), output_name)
+                    self.log_signal.emit(f"  > Note: Source folder is read-only. Saving to Desktop instead.")
                 
                 doc.save(output_path)
                 doc.close()
-                self.log_signal.emit(f"  > Success! Saved: {output_name}")
+                self.log_signal.emit(f"  > Success! Saved to: {output_path}")
                 
             except Exception as e:
                 self.log_signal.emit(f"  > Error: {e}")
@@ -238,7 +247,6 @@ class MainWindow(QMainWindow):
         self.resize(600, 500)
         self.setAcceptDrops(True)
         
-        # Set Window Icon using resource_path so it works after bundling
         icon_path = resource_path(ICON_NAME)
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -270,7 +278,6 @@ class MainWindow(QMainWindow):
         self.lbl_title = QLabel("The AutoBubbler")
         self.lbl_title.setAlignment(Qt.AlignCenter)
         self.lbl_title.setFont(QFont("Segoe UI", 24, QFont.Bold))
-        # SFU Red for the title
         self.lbl_title.setStyleSheet("color: #CC0633;") 
         layout.addWidget(self.lbl_title)
 
@@ -299,7 +306,7 @@ class MainWindow(QMainWindow):
             "<p style='line-height: 120%'>"
             "• CSV format: Question Number (Column A), Answer (Column B)<br>"
             "• Filename should include special code as 'v1234' (e.g., PSYC100-v1000.csv)<br>"
-            "• PDF key will be saved to the same directory as the CSV file<br>"
+            "• PDF key will be saved to the same directory as the CSV file (or Desktop if read-only)<br>"
             "• PDF key MUST be printed in black and white, two-sided, at 300 or 600 DPI, and 100% scale"
             "</p>"
         )
@@ -350,15 +357,22 @@ class MainWindow(QMainWindow):
         layout.addLayout(footer_layout)
 
     def generate_sample_csv(self):
-        filename = "PSYCXXX-v0000-key.csv"
+        # FIX: Always save to Desktop to avoid Read-only errors on Mac
+        desktop = get_desktop_path()
+        filename = os.path.join(desktop, "PSYCXXX-v0000-key.csv")
         content = "Question,Answer\n1,A"
         
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(content)
-            self.log_msg(f"Generated sample file: {filename}")
-            # Optional: Open the folder to show the user
-            # os.startfile(os.getcwd()) 
+            self.log_msg(f"Generated sample file on Desktop: {filename}")
+            
+            # Cross-platform way to open the folder
+            if sys.platform == "win32":
+                os.startfile(desktop)
+            elif sys.platform == "darwin": # macOS
+                subprocess.call(["open", desktop])
+                
         except Exception as e:
             self.log_msg(f"Error generating sample: {e}")
 
