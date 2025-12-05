@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-mac:
-    runs-on: macos-latest # This currently defaults to Apple Silicon (M1/M2) runners
+    runs-on: macos-latest
     
     steps:
       - name: Checkout Code
@@ -45,10 +45,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Mac-Silicon
-          path: dist/AutoBubbler-Mac-Silicon.zip
+          path: dist/AutoBubbler.app
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
+          # We use the manual zip here because Releases need a single file asset.
           files: dist/AutoBubbler-Mac-Silicon.zip
