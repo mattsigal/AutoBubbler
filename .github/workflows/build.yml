@@ -32,7 +32,7 @@ jobs:
       - name: Zip for Release
         run: Compress-Archive -Path dist/AutoBubbler -DestinationPath dist/AutoBubbler-Windows.zip
 
-      - name: Upload Artifact (No Double Zip)
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Windows
@@ -46,7 +46,7 @@ jobs:
 
   # JOB 2: MAC SILICON
   build-mac-silicon:
-    runs-on: macos-latest # Default is ARM64 (M1/M2)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,11 +68,11 @@ jobs:
           cd dist
           ditto -c -k --keepParent AutoBubbler.app AutoBubbler-Mac-Silicon.zip
 
-      - name: Upload Artifact (No Double Zip)
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Mac-Silicon
-          path: dist/AutoBubbler.app
+          path: dist/AutoBubbler-Mac-Silicon.zip 
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -82,7 +82,7 @@ jobs:
 
   # JOB 3: MAC INTEL
   build-mac-intel:
-    runs-on: macos-13 
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -104,11 +104,11 @@ jobs:
           cd dist
           ditto -c -k --keepParent AutoBubbler.app AutoBubbler-Mac-Intel.zip
 
-      - name: Upload Artifact (No Double Zip)
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoBubbler-Mac-Intel
-          path: dist/AutoBubbler.app
+          path: dist/AutoBubbler-Mac-Intel.zip 
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
