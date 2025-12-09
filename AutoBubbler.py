@@ -8,7 +8,8 @@ import subprocess # Added for opening folders on Mac
 from cryptography.fernet import Fernet # For decryption
 from PySide6.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
                                QWidget, QTextEdit, QProgressBar, QMessageBox, 
-                               QPushButton, QHBoxLayout)
+                               QPushButton, QHBoxLayout, QDialog, QFormLayout, 
+                               QLineEdit, QSpinBox, QDialogButtonBox, QFileDialog)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QDropEvent, QDragEnterEvent, QIcon
 
@@ -24,8 +25,6 @@ def resource_path(relative_path):
 
 def get_desktop_path():
     """ Cross-platform way to get the Desktop path """
-    return os.path.join(os.path.expanduser("~"), "Desktop")
-
     return os.path.join(os.path.expanduser("~"), "Desktop")
 
 BLANK_PDF_NAME = "DocSolScantron.enc" # Now using encrypted file
@@ -216,63 +215,31 @@ class BubblerLogic:
                      
                      # Fill Bubble
                      page.draw_circle(fitz.Point(bubble_x, bubble_y), radius=4.5, color=(0,0,0), fill=(0,0,0))
-                
-                # Draw Text (always draw text even if mapping failed? or only if valid? Let's draw valid chars)
-                # The text is drawn at the top box (which is above row 0? Or just using the standard offset logic?)
-                # For Special Code, the text logic was independent of the row_idx of the bubble.
-                # However, in Special Code loop:
-                # box_y = SC_START_Y + SC_TEXT_OFFSET_Y -> this meant the text was printed relative to Row 0 START Y.
-                # So it prints nicely in the box above.
-                
+                              
                 bubble_x_text = base_x + BUBBLE_NUDGE_X
                 box_y = SC_START_Y + SC_TEXT_OFFSET_Y
-                # Nudge text slightly right for Section boxes (approx +1.5)
                 text_pt = fitz.Point(bubble_x_text + SC_TEXT_OFFSET_X + 1.5, box_y)
                 page.insert_text(text_pt, char, fontsize=14, color=(0,0,0))
 
-        # 4. PRINT REFERENCE FILENAME
-            
         # 3. PRINT REFERENCE FILENAME
         # Prints the source filename (e.g. "PSYC100-v1000") at the top center
         # to help instructors identify which key is which.
-        
-        # Calculate text width to center it (approximate)
-        # Page width is usually 612 for Letter. 
-        # We can just center it by using insert_text with align (if supported) or simple math.
-        # But for basics, let's put it at (306, 50) and align center if possible 
-        # or just visually guess.
-        
-        # A better way with PyMuPDF for centering:
         rect = page.rect
         mid_x = rect.width / 2
         top_y = 60 # Slightly below top margin
         
-        
-        # We need the filename here. Since we are in a static method, we need to pass it in.
-        # However, we are currently inside fill_pdf which receives 'answers' and 'special_code'.
-        # We will update the signature to accept 'filename_text' or similar.
-        
-        # Using insert_text with 'morph' to center is complex, simpler to use basic font width estimation
-        # or just hardcode a reasonable center if font is monospaced or standard.
-        # But actually fitz.TextWriter is good for this, but let's stick to simple insert_text.
-        # We will assume "center" is roughly x=306 (Letter width 612).
-        # We'll use a standard font like Helvetica-Bold.
-        
         text_len = fitz.get_text_length(ref_text, fontname="helv", fontsize=12)
         start_x = mid_x - (text_len / 2)
         
-        # Draw box padding
         padding_x = 10
         padding_y = 5
         
         rect_x0 = start_x - padding_x
         rect_y0 = top_y - 12 - padding_y # 12 is approx cap height/ascent for size 12
         rect_x1 = start_x + text_len + padding_x
-        rect_y1 = top_y + padding_y # descent is small
+        rect_y1 = top_y + padding_y
         
-        # Draw Rectangle (stroked, not filled)
         page.draw_rect(fitz.Rect(rect_x0, rect_y0, rect_x1, rect_y1), color=(0,0,0), width=1)
-        
         page.insert_text(fitz.Point(start_x, top_y), ref_text, fontname="helv", fontsize=12, color=(0,0,0))
 
 
@@ -302,7 +269,7 @@ class Worker(QThread):
             fernet = Fernet(EMBEDDED_KEY)
             pdf_bytes = fernet.decrypt(enc_data)
             
-            # 3. Load from bytes (never save to disk)
+            # 3. Load from bytes
             base_doc = fitz.open("pdf", pdf_bytes)
             grid_map = BubblerLogic.map_questions(base_doc)
             base_doc.close()
@@ -331,18 +298,9 @@ class Worker(QThread):
                 
                 if section_code:
                      self.log_signal.emit(f"  > Found Section Code: {section_code}")
-                
-                # Re-open blank doc from memory for each file
-                # Since 'pdf_bytes' from above is available in scope (or we should make it self)
-                # Correction: pdf_bytes variable is local to the try/except block above.
-                # We should move decryption to __init__ or start of run and store it in self.pdf_bytes
-                
-                # Let's fix the logic flow slightly by moving decryption up.
-                # Actually, simpler to just re-decrypt or better yet, store decoded bytes.
-                
+                               
                 doc = fitz.open("pdf", pdf_bytes)
                 
-                # filename without extension for the reference text
                 ref_text = os.path.splitext(filename)[0]
                 
                 BubblerLogic.fill_pdf(doc, grid_map, answers, special_code, ref_text, section_code)
@@ -350,9 +308,6 @@ class Worker(QThread):
                 output_name = os.path.splitext(filename)[0] + ".pdf"
                 source_dir = os.path.dirname(file_path)
                 
-                # --- MAC FIX: Check if Source Directory is Writable ---
-                # If running from a translocated/quarantined path, source_dir might be read-only.
-                # If so, fallback to Desktop.
                 if os.access(source_dir, os.W_OK):
                     output_path = os.path.join(source_dir, output_name)
                 else:
@@ -367,6 +322,44 @@ class Worker(QThread):
                 self.log_signal.emit(f"  > Error: {e}")
 
         self.finished_signal.emit()
+
+# ================= DIALOGS =================
+class TemplateDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Generate Template CSV")
+        self.setWindowTitle("Generate Template CSV")
+        self.resize(400, 180)
+        
+        layout = QFormLayout(self)
+        
+        self.course_input = QLineEdit()
+        self.course_input.setPlaceholderText("e.g. PSYC100")
+        layout.addRow("What is your course code?", self.course_input)
+        
+        self.code_input = QLineEdit()
+        self.code_input.setPlaceholderText("e.g. 1000 (Optional)")
+        layout.addRow("Is there a special code?", self.code_input)
+        
+        self.num_q_input = QSpinBox()
+        self.num_q_input.setRange(1, 200)
+        self.num_q_input.setValue(50)
+        layout.addRow("How many questions are on the exam?", self.num_q_input)
+        
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addRow(self.buttons)
+    
+    def get_data(self):
+        course = self.course_input.text().strip().upper() or "COURSE"
+        code = self.code_input.text().strip()
+        if not code:
+            code = "0000"
+        else:
+            pass
+            
+        return course, code, self.num_q_input.value()
 
 # ================= MAIN GUI =================
 class MainWindow(QMainWindow):
@@ -462,7 +455,7 @@ class MainWindow(QMainWindow):
         footer_layout = QHBoxLayout()
         
         # Sample Button
-        self.btn_sample = QPushButton("Generate Sample CSV")
+        self.btn_sample = QPushButton("Generate Template CSV")
         self.btn_sample.setFixedSize(140, 25)
         self.btn_sample.setCursor(Qt.PointingHandCursor)
         self.btn_sample.setStyleSheet("""
@@ -486,31 +479,64 @@ class MainWindow(QMainWindow):
         footer_layout.addStretch()
 
         # Version Label
-        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.4")
+        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.5")
         self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
         footer_layout.addWidget(self.lbl_footer)
 
         layout.addLayout(footer_layout)
 
     def generate_sample_csv(self):
-        # FIX: Always save to Desktop to avoid Read-only errors on Mac
-        desktop = get_desktop_path()
-        filename = os.path.join(desktop, "PSYCXXX-v0000-key.csv")
-        content = "Question,Answer\n1,A"
+        # 1. Ask for Details
+        dialog = TemplateDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+            
+        course, code, num_q = dialog.get_data()
+        
+        # 2. Construct Filename
+        # Format: COURSE-vCODE-Key.csv
+        # If user typed "v1234" in code, avoid double v.
+        if code.lower().startswith('v'):
+            code_str = code
+        else:
+            code_str = f"v{code}"
+            
+        default_filename = f"{course}-{code_str}-Key.csv"
+        
+        # 3. Ask where to save
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Choose where to save the template CSV",
+            os.path.join(get_desktop_path(), default_filename),
+            "CSV Files (*.csv)"
+        )
+        
+        if not file_path:
+            return
+            
+        # 4. Generate Content
+        lines = ["Question,Answer"]
+        for i in range(1, num_q + 1):
+            lines.append(f"{i},")
+            
+        content = "\n".join(lines)
         
         try:
-            with open(filename, "w", encoding="utf-8") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            self.log_msg(f"Generated sample file on Desktop: {filename}")
+            self.log_msg(f"Generated template file: {file_path}")
             
-            # Cross-platform way to open the folder
-            if sys.platform == "win32":
-                os.startfile(desktop)
-            elif sys.platform == "darwin": # macOS
-                subprocess.call(["open", desktop])
+            # Open the file (not just the folder)
+            try:
+                if sys.platform == "win32":
+                    os.startfile(file_path)
+                elif sys.platform == "darwin": # macOS
+                    subprocess.call(["open", file_path])
+            except Exception as e_open:
+                self.log_msg(f"Warning: Could not open file automatically: {e_open}")
                 
         except Exception as e:
-            self.log_msg(f"Error generating sample: {e}")
+            self.log_msg(f"Error generating template: {e}")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
