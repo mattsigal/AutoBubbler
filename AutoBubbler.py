@@ -3,13 +3,13 @@ import os
 import csv
 import re
 import fitz  # PyMuPDF
-import fitz  # PyMuPDF
 import subprocess # Added for opening folders on Mac
 from cryptography.fernet import Fernet # For decryption
 from PySide6.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
                                QWidget, QTextEdit, QProgressBar, QMessageBox, 
                                QPushButton, QHBoxLayout, QDialog, QFormLayout, 
-                               QLineEdit, QSpinBox, QDialogButtonBox, QFileDialog)
+                               QLineEdit, QSpinBox, QDialogButtonBox, QFileDialog,
+                               QTabWidget)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QDropEvent, QDragEnterEvent, QIcon
 
@@ -27,6 +27,7 @@ def get_desktop_path():
     """ Cross-platform way to get the Desktop path """
     return os.path.join(os.path.expanduser("~"), "Desktop")
 
+APP_VERSION = "v1.6"
 BLANK_PDF_NAME = "DocSolScantron.enc" # Now using encrypted file
 ICON_NAME = "AutoBubbler.ico" 
 EMBEDDED_KEY = b"K19UjqIKt63Ff2SjTHfU6wgj_5sRL-oejBjT1tmBZ50="
@@ -243,7 +244,30 @@ class BubblerLogic:
         page.insert_text(fitz.Point(start_x, top_y), ref_text, fontname="helv", fontsize=12, color=(0,0,0))
 
 
-# ================= WORKER THREAD =================
+# ================= SHARED HELPERS =================
+def load_blank_pdf_bytes():
+    """Decrypt the embedded blank Scantron template in memory."""
+    path = resource_path(BLANK_PDF_NAME)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Could not find blank PDF at {path}")
+    with open(path, "rb") as f:
+        enc_data = f.read()
+    return Fernet(EMBEDDED_KEY).decrypt(enc_data)
+
+
+def open_file_externally(path):
+    try:
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.call(["open", path])
+        else:
+            subprocess.call(["xdg-open", path])
+    except Exception:
+        pass
+
+
+# ================= WORKER THREADS =================
 class Worker(QThread):
     log_signal = Signal(str)
     finished_signal = Signal()
@@ -251,29 +275,13 @@ class Worker(QThread):
     def __init__(self, file_urls):
         super().__init__()
         self.file_urls = file_urls
-        self.blank_pdf_path = resource_path(BLANK_PDF_NAME)
 
     def run(self):
-        if not os.path.exists(self.blank_pdf_path):
-            self.log_signal.emit(f"ERROR: Could not find blank PDF at {self.blank_pdf_path}")
-            self.finished_signal.emit()
-            return
-        
         try:
-            # IN-MEMORY DECRYPTION
-            # 1. Read Encrypted File
-            with open(self.blank_pdf_path, "rb") as f:
-                enc_data = f.read()
-            
-            # 2. Decrypt
-            fernet = Fernet(EMBEDDED_KEY)
-            pdf_bytes = fernet.decrypt(enc_data)
-            
-            # 3. Load from bytes
+            pdf_bytes = load_blank_pdf_bytes()
             base_doc = fitz.open("pdf", pdf_bytes)
             grid_map = BubblerLogic.map_questions(base_doc)
             base_doc.close()
-        
         except Exception as e:
             self.log_signal.emit(f"CRITICAL ERROR mapping/decrypting PDF: {e}")
             self.finished_signal.emit()
@@ -286,89 +294,232 @@ class Worker(QThread):
                 continue
 
             self.log_signal.emit(f"Processing: {filename}...")
-            
+
             try:
                 special_code = BubblerLogic.extract_special_code(filename)
                 section_code = BubblerLogic.extract_section_code(filename)
                 answers = BubblerLogic.parse_csv(file_path)
-                
+
                 if special_code is None:
                     special_code = "0000"
                     self.log_signal.emit(f"  > Warning: No 'vXXXX' in filename. Using code 0000.")
-                
+
                 if section_code:
-                     self.log_signal.emit(f"  > Found Section Code: {section_code}")
-                               
+                    self.log_signal.emit(f"  > Found Section Code: {section_code}")
+
                 doc = fitz.open("pdf", pdf_bytes)
-                
                 ref_text = os.path.splitext(filename)[0]
-                
                 BubblerLogic.fill_pdf(doc, grid_map, answers, special_code, ref_text, section_code)
-                
+
                 output_name = os.path.splitext(filename)[0] + ".pdf"
                 source_dir = os.path.dirname(file_path)
-                
+
                 if os.access(source_dir, os.W_OK):
                     output_path = os.path.join(source_dir, output_name)
                 else:
                     output_path = os.path.join(get_desktop_path(), output_name)
                     self.log_signal.emit(f"  > Note: Source folder is read-only. Saving to Desktop instead.")
-                
+
                 doc.save(output_path)
                 doc.close()
                 self.log_signal.emit(f"  > Success! Saved to: {output_path}")
-                
+
             except Exception as e:
                 self.log_signal.emit(f"  > Error: {e}")
 
         self.finished_signal.emit()
+
+
+_SCORER_TEMPLATE = None  # built once per session (rendering + pyramids)
+
+
+class ScorerWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(str)  # output path, or "" on failure
+
+    def __init__(self, key_path, scan_paths):
+        super().__init__()
+        self.key_path = key_path
+        self.scan_paths = scan_paths
+
+    def run(self):
+        global _SCORER_TEMPLATE
+        out_path = ""
+        try:
+            import autoscorer  # lazy: pulls in OpenCV only when needed
+            if _SCORER_TEMPLATE is None:
+                self.log_signal.emit("Preparing Scantron template...")
+                pdf_bytes = load_blank_pdf_bytes()
+                base_doc = fitz.open("pdf", pdf_bytes)
+                qmap = BubblerLogic.map_questions(base_doc)
+                base_doc.close()
+                sc_geom = dict(start_x=SC_START_X, start_y=SC_START_Y, step_x=SC_STEP_X,
+                               step_y=SC_STEP_Y, nudge_x=BUBBLE_NUDGE_X)
+                _SCORER_TEMPLATE = autoscorer.Template(pdf_bytes, qmap, sc_geom)
+            out_path, _ = autoscorer.score(self.key_path, self.scan_paths, _SCORER_TEMPLATE,
+                                           get_desktop_path(), APP_VERSION,
+                                           log=self.log_signal.emit)
+            self.log_signal.emit(f"  > Graded PDF saved to: {out_path}")
+        except Exception as e:
+            name = type(e).__name__
+            msg = str(e) if name == "ScoringError" else f"{name}: {e}"
+            self.log_signal.emit(f"  > ERROR: {msg}")
+            out_path = ""
+        self.finished_signal.emit(out_path)
+
 
 # ================= DIALOGS =================
 class TemplateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Generate Template CSV")
-        self.setWindowTitle("Generate Template CSV")
         self.resize(400, 180)
-        
+
         layout = QFormLayout(self)
-        
+
         self.course_input = QLineEdit()
         self.course_input.setPlaceholderText("e.g. PSYC100")
         layout.addRow("What is your course code?", self.course_input)
-        
+
         self.code_input = QLineEdit()
         self.code_input.setPlaceholderText("e.g. 1000 (Optional)")
         layout.addRow("Is there a special code?", self.code_input)
-        
+
         self.num_q_input = QSpinBox()
         self.num_q_input.setRange(1, 200)
         self.num_q_input.setValue(50)
         layout.addRow("How many questions are on the exam?", self.num_q_input)
-        
+
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         layout.addRow(self.buttons)
-    
+
     def get_data(self):
         course = self.course_input.text().strip().upper() or "COURSE"
         code = self.code_input.text().strip()
         if not code:
             code = "0000"
-        else:
-            pass
-            
         return course, code, self.num_q_input.value()
+
+
+# ================= WIDGETS =================
+DROP_STYLE_IDLE = """
+    QLabel {
+        background-color: #2d2d2d;
+        color: #cccccc;
+        border: 2px dashed #444444;
+        border-radius: 10px;
+        padding: 20px;
+    }
+"""
+DROP_STYLE_ACTIVE = """
+    QLabel {
+        background-color: #2d2d2d;
+        color: #ffffff;
+        border: 2px solid #CC0633;
+        border-radius: 10px;
+        padding: 20px;
+    }
+"""
+DROP_STYLE_LOADED = """
+    QLabel {
+        background-color: #263026;
+        color: #e0e0e0;
+        border: 2px solid #3c7a3c;
+        border-radius: 10px;
+        padding: 20px;
+    }
+"""
+SMALL_BUTTON_STYLE = """
+    QPushButton {
+        background-color: #333333;
+        color: #aaaaaa;
+        border: 1px solid #555555;
+        border-radius: 4px;
+        font-size: 11px;
+    }
+    QPushButton:hover {
+        background-color: #444444;
+        color: #ffffff;
+        border: 1px solid #777777;
+    }
+    QPushButton:disabled {
+        color: #555555;
+        border: 1px solid #3a3a3a;
+    }
+"""
+
+
+class DropZone(QLabel):
+    """A label that accepts dropped files (and optionally click-to-browse)."""
+    files_dropped = Signal(list)
+
+    def __init__(self, html, browse_filter=None, browse_multi=False, parent=None):
+        super().__init__(html, parent)
+        self.setAcceptDrops(True)
+        self.setWordWrap(True)
+        self.browse_filter = browse_filter
+        self.browse_multi = browse_multi
+        self.loaded = False
+        self.setFont(QFont("Segoe UI", 11))
+        self.setStyleSheet(DROP_STYLE_IDLE)
+        if browse_filter:
+            self.setCursor(Qt.PointingHandCursor)
+            self.setToolTip("Drop file(s) here, or click to browse")
+
+    def set_loaded(self, loaded):
+        self.loaded = loaded
+        self.setStyleSheet(DROP_STYLE_LOADED if loaded else DROP_STYLE_IDLE)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self.setStyleSheet(DROP_STYLE_ACTIVE)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self.set_loaded(self.loaded)
+
+    def dropEvent(self, event: QDropEvent):
+        self.set_loaded(self.loaded)
+        files = [u.toLocalFile() for u in event.mimeData().urls() if u.toLocalFile()]
+        if files:
+            self.files_dropped.emit(files)
+
+    def mousePressEvent(self, event):
+        if not self.browse_filter or event.button() != Qt.LeftButton:
+            return super().mousePressEvent(event)
+        if self.browse_multi:
+            files, _ = QFileDialog.getOpenFileNames(self, "Select file(s)", get_desktop_path(), self.browse_filter)
+        else:
+            f, _ = QFileDialog.getOpenFileName(self, "Select file", get_desktop_path(), self.browse_filter)
+            files = [f] if f else []
+        if files:
+            self.files_dropped.emit(files)
+
+
+def make_log_box():
+    box = QTextEdit()
+    box.setReadOnly(True)
+    box.setFont(QFont("Consolas", 10))
+    return box
+
+
+def append_log(box, msg):
+    box.append(msg)
+    sb = box.verticalScrollBar()
+    sb.setValue(sb.maximum())
+
 
 # ================= MAIN GUI =================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("The AutoBubbler")
-        self.resize(600, 500)
-        self.setAcceptDrops(True)
-        
+        self.resize(980, 660)
+
         icon_path = resource_path(ICON_NAME)
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -387,189 +538,292 @@ class MainWindow(QMainWindow):
                 border: 1px solid #3e3e42;
                 border-radius: 4px;
             }
+            QTabWidget::pane {
+                border: none;
+            }
+            QTabBar::tab {
+                background: #2d2d2d;
+                color: #aaaaaa;
+                padding: 7px 22px;
+                margin-right: 4px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QTabBar::tab:selected {
+                background: #CC0633;
+                color: #ffffff;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #3a3a3a;
+                color: #ffffff;
+            }
         """)
 
-        # Layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 15, 20, 15)
 
         # Header
         self.lbl_title = QLabel("The AutoBubbler")
         self.lbl_title.setAlignment(Qt.AlignCenter)
         self.lbl_title.setFont(QFont("Segoe UI", 24, QFont.Bold))
-        self.lbl_title.setStyleSheet("color: #CC0633;") 
+        self.lbl_title.setStyleSheet("color: #CC0633;")
         layout.addWidget(self.lbl_title)
 
-        # Instructions Drop Box
-        self.instruction_style_idle = """
-            QLabel {
-                background-color: #2d2d2d;
-                color: #cccccc;
-                border: 2px dashed #444444;
-                border-radius: 10px;
-                padding: 20px;
-            }
-        """
-        self.instruction_style_active = """
-            QLabel {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border: 2px solid #CC0633;
-                border-radius: 10px;
-                padding: 20px;
-            }
-        """
-        
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_bubbler_tab(), "AutoBubbler")
+        self.tabs.addTab(self._build_scorer_tab(), "AutoScorer")
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        layout.addWidget(self.tabs)
+
+        # Footer
+        footer_layout = QHBoxLayout()
+        self.btn_sample = QPushButton("Generate Template CSV")
+        self.btn_sample.setFixedSize(140, 25)
+        self.btn_sample.setCursor(Qt.PointingHandCursor)
+        self.btn_sample.setStyleSheet(SMALL_BUTTON_STYLE)
+        self.btn_sample.clicked.connect(self.generate_sample_csv)
+        footer_layout.addWidget(self.btn_sample)
+        footer_layout.addStretch()
+        self.lbl_footer = QLabel(f"SFU Document Solutions Helper, {APP_VERSION}")
+        self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
+        footer_layout.addWidget(self.lbl_footer)
+        layout.addLayout(footer_layout)
+
+    # ---------- Tab 1: AutoBubbler ----------
+    def _build_bubbler_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(12)
+
         self.default_html = (
             "<h3 align='center'>DRAG AND DROP YOUR ANSWER KEY CSV FILE(S) HERE</h3>"
             "<p style='line-height: 120%'>"
             "• CSV format: Question Number (Column A), Answer (Column B)<br>"
             "• Filename should include special code as 'v1234' (e.g., PSYC100-v1000.csv)<br>"
-            "• Filename can also include section number (e.g., -D106)<br>" 
+            "• Filename can also include section number (e.g., -D106)<br>"
             "• PDF key will be saved to the same directory as the CSV file (or your Desktop if read-only)<br>"
             "• PDF key <span style='color: #ff3333; font-weight: bold;'>MUST</span> be printed in black and white, two-sided, at 300 or 600 DPI, and 100% scale"
             "</p>"
         )
-
-        self.lbl_instructions = QLabel(self.default_html)
-        self.lbl_instructions.setFont(QFont("Segoe UI", 11))
-        self.lbl_instructions.setStyleSheet(self.instruction_style_idle)
+        self.lbl_instructions = DropZone(self.default_html)
+        self.lbl_instructions.files_dropped.connect(self.start_processing)
         layout.addWidget(self.lbl_instructions)
 
-        # Log Window
-        self.txt_log = QTextEdit()
-        self.txt_log.setReadOnly(True)
-        self.txt_log.setFont(QFont("Consolas", 10))
+        self.txt_log = make_log_box()
         layout.addWidget(self.txt_log)
 
-        # Disclaimer
-        self.lbl_disclaimer = QLabel("IMPORTANT: Do NOT duplicate or distribute generated PDFs for student use.\nThis app is only intended for generating answer keys.\nStudents MUST submit authentic Scantron forms to Document Solutions for grading purposes.")
-        self.lbl_disclaimer.setAlignment(Qt.AlignCenter)
-        self.lbl_disclaimer.setStyleSheet("color: #ffaa00; font-size: 11px; font-weight: bold; margin-top: 5px;")
-        layout.addWidget(self.lbl_disclaimer)
+        lbl_disclaimer = QLabel("IMPORTANT: Do NOT duplicate or distribute generated PDFs for student use.\n"
+                                "This app is only intended for generating answer keys.\n"
+                                "Students MUST submit authentic Scantron forms to Document Solutions for grading purposes.")
+        lbl_disclaimer.setAlignment(Qt.AlignCenter)
+        lbl_disclaimer.setStyleSheet("color: #ffaa00; font-size: 11px; font-weight: bold; margin-top: 5px;")
+        layout.addWidget(lbl_disclaimer)
+        return page
 
-        # Footer Layout
-        footer_layout = QHBoxLayout()
-        
-        # Sample Button
-        self.btn_sample = QPushButton("Generate Template CSV")
-        self.btn_sample.setFixedSize(140, 25)
-        self.btn_sample.setCursor(Qt.PointingHandCursor)
-        self.btn_sample.setStyleSheet("""
-            QPushButton {
-                background-color: #333333;
-                color: #aaaaaa;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #444444;
-                color: #ffffff;
-                border: 1px solid #777777;
-            }
+    # ---------- Tab 2: AutoScorer ----------
+    def _build_scorer_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setSpacing(12)
+
+        self.score_key = None
+        self.score_scans = []
+
+        zones = QHBoxLayout()
+        zones.setSpacing(12)
+        self.key_zone = DropZone("", "Answer keys (*.csv *.pdf)")
+        self.key_zone.files_dropped.connect(self.on_key_dropped)
+        self.scan_zone = DropZone("", "Scans/photos (*.pdf *.jpg *.jpeg *.png *.tif *.tiff)", browse_multi=True)
+        self.scan_zone.files_dropped.connect(self.on_scan_dropped)
+        for z, stretch in ((self.key_zone, 2), (self.scan_zone, 3)):
+            z.setMinimumHeight(170)
+            z.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            zones.addWidget(z, stretch)
+        layout.addLayout(zones)
+
+        btn_row = QHBoxLayout()
+        self.btn_grade = QPushButton("Grade Scantron")
+        self.btn_grade.setFixedHeight(32)
+        self.btn_grade.setCursor(Qt.PointingHandCursor)
+        self.btn_grade.setStyleSheet("""
+            QPushButton { background-color: #CC0633; color: white; border: none;
+                          border-radius: 4px; font-size: 13px; font-weight: bold; padding: 0 24px; }
+            QPushButton:hover { background-color: #e0103f; }
+            QPushButton:disabled { background-color: #4a2a31; color: #888888; }
         """)
-        self.btn_sample.clicked.connect(self.generate_sample_csv)
-        footer_layout.addWidget(self.btn_sample)
+        self.btn_grade.clicked.connect(self.start_scoring)
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.setFixedSize(80, 32)
+        self.btn_clear.setCursor(Qt.PointingHandCursor)
+        self.btn_clear.setStyleSheet(SMALL_BUTTON_STYLE)
+        self.btn_clear.clicked.connect(self.clear_scoring)
+        btn_row.addStretch()
+        btn_row.addWidget(self.btn_grade)
+        btn_row.addWidget(self.btn_clear)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
 
-        # Spacer
-        footer_layout.addStretch()
+        self.score_log = make_log_box()
+        layout.addWidget(self.score_log)
 
-        # Version Label
-        self.lbl_footer = QLabel("SFU Document Solutions Helper, v1.5")
-        self.lbl_footer.setStyleSheet("font-size: 10px; color: #666666;")
-        footer_layout.addWidget(self.lbl_footer)
+        lbl_disclaimer = QLabel("AutoScorer is for ONE-OFF grading only (e.g., a single makeup exam).\n"
+                                "Whole-class grading MUST go through Document Solutions. "
+                                "Always spot-check the graded PDF.")
+        lbl_disclaimer.setAlignment(Qt.AlignCenter)
+        lbl_disclaimer.setStyleSheet("color: #ffaa00; font-size: 11px; font-weight: bold; margin-top: 5px;")
+        layout.addWidget(lbl_disclaimer)
 
-        layout.addLayout(footer_layout)
+        self._refresh_scorer_ui()
+        return page
 
+    def _refresh_scorer_ui(self):
+        if self.score_key:
+            key_html = ("<h3>1. ANSWER KEY &#10003;</h3>"
+                        f"<p><b>{os.path.basename(self.score_key)}</b></p>"
+                        "<p style='color:#999999'>Drop another file to replace.</p>")
+        else:
+            key_html = ("<h3>1. ANSWER KEY</h3>"
+                        "<p style='line-height: 120%'>Drop the key here (or click):<br>"
+                        "• The original CSV, <i>or</i><br>"
+                        "• The PDF key made by AutoBubbler</p>")
+        if self.score_scans:
+            names = "<br>".join(os.path.basename(p) for p in self.score_scans)
+            scan_html = ("<h3>2. STUDENT SCANTRON &#10003;</h3>"
+                         f"<p><b>{names}</b></p>"
+                         "<p style='color:#999999'>Drop another file to replace.</p>")
+        else:
+            scan_html = ("<h3>2. STUDENT SCANTRON</h3>"
+                         "<p style='line-height: 120%'>Drop ONE student's sheet here (or click):<br>"
+                         "• A scanned PDF (preferred), or a phone photo (JPG/PNG)<br>"
+                         "• More than 40 questions? Include both pages (2-page PDF or two photos)</p>")
+        self.key_zone.setText(key_html)
+        self.key_zone.set_loaded(bool(self.score_key))
+        self.scan_zone.setText(scan_html)
+        self.scan_zone.set_loaded(bool(self.score_scans))
+        busy = getattr(self, "score_worker", None) is not None and self.score_worker.isRunning()
+        self.btn_grade.setEnabled(bool(self.score_key and self.score_scans) and not busy)
+
+    def on_key_dropped(self, files):
+        # Allow dropping key + scan together onto the key zone
+        keys = [f for f in files if f.lower().endswith((".csv", ".pdf"))]
+        if len(files) > 1:
+            csvs = [f for f in files if f.lower().endswith(".csv")]
+            if csvs:
+                self.score_key = csvs[0]
+                rest = [f for f in files if f != csvs[0]]
+                if rest:
+                    self.on_scan_dropped(rest)
+                    return
+            else:
+                append_log(self.score_log, "Please drop only ONE answer key.")
+                return
+        elif keys:
+            self.score_key = keys[0]
+        else:
+            append_log(self.score_log, "The answer key must be a .csv or AutoBubbler .pdf file.")
+            return
+        self._refresh_scorer_ui()
+
+    def on_scan_dropped(self, files):
+        csvs = [f for f in files if f.lower().endswith(".csv")]
+        if csvs:  # a CSV can only be a key
+            self.score_key = csvs[0]
+            files = [f for f in files if f not in csvs]
+        pdfs = [f for f in files if f.lower().endswith(".pdf")]
+        imgs = [f for f in files if f.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"))]
+        if files:
+            if pdfs and imgs:
+                append_log(self.score_log, "Please drop either one PDF or photo(s), not both.")
+            elif len(pdfs) > 1:
+                append_log(self.score_log, "Please drop only ONE student's scan (a single PDF; "
+                                           "use a 2-page PDF for front + back).")
+            elif len(imgs) > 2:
+                append_log(self.score_log, "Please drop at most TWO photos (front + back of one sheet).")
+            elif pdfs or imgs:
+                self.score_scans = pdfs or imgs
+            else:
+                append_log(self.score_log, "Unsupported scan file type. Use PDF, JPG or PNG.")
+        self._refresh_scorer_ui()
+
+    def clear_scoring(self):
+        self.score_key = None
+        self.score_scans = []
+        self.score_log.clear()
+        self._refresh_scorer_ui()
+
+    def start_scoring(self):
+        if not (self.score_key and self.score_scans):
+            return
+        self.score_log.clear()
+        self.score_worker = ScorerWorker(self.score_key, list(self.score_scans))
+        self.score_worker.log_signal.connect(lambda m: append_log(self.score_log, m))
+        self.score_worker.finished_signal.connect(self.on_scoring_finished)
+        self.btn_grade.setEnabled(False)
+        self.btn_grade.setText("Grading...")
+        self.score_worker.start()
+
+    def on_scoring_finished(self, out_path):
+        self.btn_grade.setText("Grade Scantron")
+        self._refresh_scorer_ui()
+        if out_path:
+            open_file_externally(out_path)
+
+    def _on_tab_changed(self, idx):
+        self.btn_sample.setVisible(idx == 0)
+
+    # ---------- AutoBubbler actions ----------
     def generate_sample_csv(self):
-        # 1. Ask for Details
         dialog = TemplateDialog(self)
         if dialog.exec() != QDialog.Accepted:
             return
-            
+
         course, code, num_q = dialog.get_data()
-        
-        # 2. Construct Filename
-        # Format: COURSE-vCODE-Key.csv
-        # If user typed "v1234" in code, avoid double v.
-        if code.lower().startswith('v'):
-            code_str = code
-        else:
-            code_str = f"v{code}"
-            
+
+        # Format: COURSE-vCODE-Key.csv (avoid double v)
+        code_str = code if code.lower().startswith('v') else f"v{code}"
         default_filename = f"{course}-{code_str}-Key.csv"
-        
-        # 3. Ask where to save
+
         file_path, _ = QFileDialog.getSaveFileName(
-            self, 
+            self,
             "Choose where to save the template CSV",
             os.path.join(get_desktop_path(), default_filename),
             "CSV Files (*.csv)"
         )
-        
         if not file_path:
             return
-            
-        # 4. Generate Content
-        lines = ["Question,Answer"]
-        for i in range(1, num_q + 1):
-            lines.append(f"{i},")
-            
-        content = "\n".join(lines)
-        
+
+        lines = ["Question,Answer"] + [f"{i}," for i in range(1, num_q + 1)]
         try:
             with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content)
+                f.write("\n".join(lines))
             self.log_msg(f"Generated template file: {file_path}")
-            
-            # Open the file (not just the folder)
-            try:
-                if sys.platform == "win32":
-                    os.startfile(file_path)
-                elif sys.platform == "darwin": # macOS
-                    subprocess.call(["open", file_path])
-            except Exception as e_open:
-                self.log_msg(f"Warning: Could not open file automatically: {e_open}")
-                
+            open_file_externally(file_path)
         except Exception as e:
             self.log_msg(f"Error generating template: {e}")
-
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
-            event.accept()
-            self.lbl_instructions.setStyleSheet(self.instruction_style_active)
-        else:
-            event.ignore()
-
-    def dragLeaveEvent(self, event):
-        self.lbl_instructions.setStyleSheet(self.instruction_style_idle)
-
-    def dropEvent(self, event: QDropEvent):
-        self.lbl_instructions.setStyleSheet(self.instruction_style_idle)
-        files = [u.toLocalFile() for u in event.mimeData().urls()]
-        self.start_processing(files)
 
     def start_processing(self, files):
         self.txt_log.clear()
         self.lbl_instructions.setText("<h3 align='center'>Processing...</h3>")
-        
+
         self.worker = Worker(files)
         self.worker.log_signal.connect(self.log_msg)
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.start()
 
     def log_msg(self, msg):
-        self.txt_log.append(msg)
-        sb = self.txt_log.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        append_log(self.txt_log, msg)
 
     def on_finished(self):
         self.log_msg("\n--- All Tasks Completed ---")
         self.lbl_instructions.setText(self.default_html)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

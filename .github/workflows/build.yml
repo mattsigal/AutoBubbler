@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install Dependencies
-        run: pip install PySide6 pymupdf pyinstaller cryptography pillow
+        run: pip install PySide6 pymupdf pyinstaller cryptography pillow numpy opencv-python-headless
       - name: Build App
         run: pyinstaller --onefile --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.enc;." --add-data "AutoBubbler.ico;." AutoBubbler.py
 
@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install Dependencies
-        run: pip install PySide6 pymupdf pyinstaller cryptography pillow
+        run: pip install PySide6 pymupdf pyinstaller cryptography pillow numpy opencv-python-headless
       - name: Build App
         run: pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.enc:." AutoBubbler.py
 
@@ -77,7 +77,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install Dependencies
-        run: pip install PySide6 pymupdf pyinstaller cryptography pillow
+        run: pip install PySide6 pymupdf pyinstaller cryptography pillow numpy opencv-python-headless
       - name: Build App
         run: pyinstaller --noconsole --name "AutoBubbler" --icon "AutoBubbler.png" --add-data "DocSolScantron.enc:." AutoBubbler.py
 

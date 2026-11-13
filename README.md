@@ -6,6 +6,7 @@
 * **Auto-Detection:** Automatically detects and bubbles the "Special Code" based upon the filename (e.g., `v1234`).
 * **Batch Processing:** Can handle multiple CSV files at once.
 * **Visual Feedback:** Dark mode GUI with real-time status logging.
+* **AutoScorer (new in v1.6):** Grade a *single* student's Scantron (e.g., a makeup exam) from a scan or phone photo, and get back an annotated PDF showing the correct answers and the score.
 
 ## Installation
 **The AutoBubbler** is availalable for Windows and Mac. In both cases, no installer is required; however, there are a few small issues with running it on Mac that you should be aware of.
@@ -47,3 +48,17 @@ In order for the keys to be scanned by Document Solutions, you **must** print th
 * **Duplex:** Two-sided.
 
 These print settings have been confirmed to work by SFU Document Solutions.
+
+## AutoScorer (One-Off Grading)
+The **AutoScorer** tab grades ONE completed SFU GPAS200 Scantron against an answer key. It is meant for one-offs such as a makeup or deferred exam. **Whole classes must still be graded by Document Solutions.**
+
+1. **Answer Key:** Drop the original key CSV (same format as above) *or* the PDF key that AutoBubbler made.
+2. **Student Scantron:** Drop ONE student's sheet:
+   * A scanned PDF (recommended; any colour scanner/copier is fine), or
+   * A phone photo (JPG/PNG). Photograph the whole sheet straight-on, on a darker surface, with even lighting. iPhone HEIC photos must be exported as JPG.
+   * **Exams with more than 40 questions** need the **back** of the sheet as well: a 2-page PDF (front + back, in either order) or two photos.
+3. Click **Grade Scantron**. A `<scan name>-GRADED.pdf` is saved beside the scan (or on your Desktop if that folder is read-only) and opened automatically.
+
+On the graded PDF, a **green ring** marks every correct answer, a **red X** marks each incorrect response, and `BL` / `MX` flag blank or multiple-marked questions. The score is printed at the top. The log lists every incorrect question, and anything faint or ambiguous is flagged for a visual check. If the key filename (or key PDF) has a special code, the AutoScorer also warns when the student bubbled a different code.
+
+> AutoScorer results are unofficial. Always spot-check the graded PDF before recording a grade.
